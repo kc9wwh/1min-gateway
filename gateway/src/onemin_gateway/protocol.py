@@ -61,12 +61,17 @@ RETRY_CORRECTION_PROMPT = (
 # Phrases that indicate the model is narrating intent in prose instead of
 # emitting a tool_call object (e.g. "First, let me verify the directory
 # exists.").
+#
+# Deliberately limited to first-person-future, action-oriented phrasing --
+# i.e. the model announcing it is *about to act*. Broader words like "first"
+# or "verify" are intentionally excluded: they show up constantly in ordinary
+# prose and legitimate final answers (e.g. "First, run the tests, then
+# deploy." or "I verified the fix works.") and would cause false-positive
+# retries that waste a round-trip for no benefit.
 _NARRATED_INTENT_PHRASES = (
     "let me",
     "i'll",
     "i will",
-    "first",
-    "verify",
     "i need to",
     "i should",
     "let's",

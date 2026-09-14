@@ -208,3 +208,21 @@ class TestLooksLikeFailedAttempt:
     def test_empty_text_does_not_trigger_retry(self):
         assert looks_like_failed_attempt("") is False
         assert looks_like_failed_attempt("   ") is False
+
+    def test_final_answer_containing_first_does_not_trigger_retry(self):
+        # "first" alone is too broad a signal -- it shows up in ordinary
+        # final answers that are not failed tool-call attempts.
+        text = "First, run the tests, then deploy."
+        assert looks_like_failed_attempt(text) is False
+
+    def test_final_answer_containing_verify_does_not_trigger_retry(self):
+        # "verify" alone is too broad a signal for the same reason.
+        text = "I verified the fix works."
+        assert looks_like_failed_attempt(text) is False
+
+    def test_first_person_future_narration_still_triggers_retry(self):
+        # "let me" etc. remain strong, action-oriented signals even without
+        # "first"/"verify" in the trigger list.
+        assert looks_like_failed_attempt("Let me check that file.") is True
+        assert looks_like_failed_attempt("I'll create the directory now.") is True
+        assert looks_like_failed_attempt("I need to read the config first.") is True
