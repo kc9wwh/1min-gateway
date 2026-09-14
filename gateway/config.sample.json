@@ -1,0 +1,21 @@
+{
+  "backend": "oneminai",
+  "oneminai_api_key": "PASTE-YOUR-1MIN-AI-API-KEY-HERE",
+  "oneminai_base_url": "https://api.1min.ai",
+  "oneminai_chat_endpoint": "/api/chat-with-ai",
+  "relay_base_url": "http://192.168.50.206:5001/v1",
+  "relay_api_key": "",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "tool_call_retry": true,
+  "pricing": {
+    "grok-4-fast-non-reasoning": { "input": 600, "output": 1502 },
+    "deepseek-v4-pro": { "input": 1305, "output": 2612 },
+    "qwen3-8b": { "input": 0, "output": 0 },
+    "qwen3.7-flash": { "input": 90, "output": 390 },
+    "deepseek-v4-flash": { "input": 420, "output": 840 },
+    "grok-4.3": { "input": 3752, "output": 7505 },
+    "us.anthropic.claude-sonnet-5": { "input": 6603, "output": 33017 }
+  },
+  "default_pricing": { "input": 0, "output": 0 }
+}

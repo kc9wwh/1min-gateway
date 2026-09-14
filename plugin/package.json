@@ -1,0 +1,23 @@
+{
+  "name": "opencode-1min-gateway",
+  "version": "0.1.0",
+  "description": "OpenCode plugin that installs and registers the 1min.ai Agent Gateway as a custom provider",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "../gateway"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.18.31"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
