@@ -82,13 +82,12 @@ async def _run_one_round(
     parsed, remaining_text = protocol.parse_tool_call(result.text)
 
     if parsed is None and tools and config.tool_call_retry:
-        stripped = result.text.strip()
-        looks_like_failed_attempt = stripped.startswith("{") or "tool_call" in (
-            stripped.lower()
-        )
-        if looks_like_failed_attempt:
+        if protocol.looks_like_failed_attempt(result.text):
             logger.info(
-                "Malformed tool_call from model, retrying once with correction"
+                "Model response looks like a failed tool_call attempt "
+                "(malformed JSON, narrated intent, or raw code) -- retrying "
+                "once with correction: %r",
+                result.text[:200],
             )
             retry_prompt = (
                 prompt + "\n" + result.text + "\n\nHuman: " + protocol.RETRY_CORRECTION_PROMPT

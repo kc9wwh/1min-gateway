@@ -23,20 +23,101 @@ from typing import Any
 from .models import ChatMessage, ToolDef
 
 TOOL_PROTOCOL_HEADER = (
-    "You have access to the following tools. To use a tool, respond with "
-    "ONLY a JSON object in this exact format, on its own line, nothing "
-    "else:\n"
+    "You have access to the following tools. You have NO filesystem access "
+    "and CANNOT run code or shell commands yourself -- you can only act by "
+    "emitting a tool_call object, which will be executed for you and the "
+    "result sent back to you. NEVER write PowerShell, bash, Python, or any "
+    "other code or file contents directly in your response.\n"
+    "\n"
+    "To use a tool, respond with ONLY a JSON object in this exact format, on "
+    "its own line, valid JSON, and nothing else -- no prose, no code, no "
+    "explanation:\n"
     '{"tool_call": {"name": "<tool_name>", "arguments": {<json args>}}}\n'
-    "When you are finished, respond normally without a tool_call object.\n"
+    "\n"
+    "Examples:\n"
+    'Read a file: {"tool_call": {"name": "read_file", "arguments": '
+    '{"path": "src/app.py"}}}\n'
+    'List a directory: {"tool_call": {"name": "list_dir", "arguments": '
+    '{"path": "."}}}\n'
+    'Run a command: {"tool_call": {"name": "run_command", "arguments": '
+    '{"command": "pytest -q"}}}\n'
+    "\n"
+    "Do not narrate or describe what you are about to do (e.g. \"let me...\", "
+    "\"first I will...\") -- just emit the tool_call object for the single "
+    "next action. When you are completely finished and need no more tools, "
+    "respond normally with plain text and no tool_call object.\n"
     "\n"
     "Available tools:\n"
 )
 
 RETRY_CORRECTION_PROMPT = (
-    "You must respond with a JSON tool_call object in the exact format "
-    'specified: {"tool_call": {"name": "<tool_name>", "arguments": '
-    "{<json args>}}}. Respond with ONLY that JSON object, nothing else."
+    "Your previous response did not follow the required tool-call format. "
+    "Do not write code or shell commands. Do not describe what you will do. "
+    "Respond with ONLY the JSON tool_call object for the single next action, "
+    'in the exact format: {"tool_call": {"name": "<tool_name>", "arguments": '
+    "{<json args>}}}."
 )
+
+# Phrases that indicate the model is narrating intent in prose instead of
+# emitting a tool_call object (e.g. "First, let me verify the directory
+# exists.").
+_NARRATED_INTENT_PHRASES = (
+    "let me",
+    "i'll",
+    "i will",
+    "first",
+    "verify",
+    "i need to",
+    "i should",
+    "let's",
+)
+
+# Signals that the model wrote raw code/shell instead of a tool_call object
+# (e.g. DeepSeek emitting `if (Test-Path ...) { ... }`).
+_RAW_CODE_SIGNALS = (
+    "test-path",
+    "new-item",
+    "if (",
+    "#!/",
+    "import ",
+    "def ",
+    "function ",
+    "mkdir",
+    "touch ",
+    "echo ",
+    "write-file",
+    "read-file",
+    "```",
+)
+
+
+def looks_like_failed_attempt(text: str) -> bool:
+    """True if `text` looks like the model tried to act but did not emit a
+    valid ``{"tool_call": ...}`` object -- either malformed JSON, narrated
+    intent in prose, or raw code/shell.
+
+    This is used to decide whether to fire the one corrective retry; it is
+    intentionally permissive (biased toward retrying) since the alternative
+    is a silently hung agent loop.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+
+    # Malformed/partial tool_call JSON.
+    if stripped.startswith("{") or "tool_call" in lowered:
+        return True
+
+    # Narrated intent in prose.
+    if any(phrase in lowered for phrase in _NARRATED_INTENT_PHRASES):
+        return True
+
+    # Raw code or shell written directly instead of a tool call.
+    if any(signal in lowered for signal in _RAW_CODE_SIGNALS):
+        return True
+
+    return False
 
 
 def _tool_spec_json(tools: list[ToolDef]) -> str:

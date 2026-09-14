@@ -5,6 +5,7 @@ from onemin_gateway.protocol import (
     build_prompt,
     build_tool_block,
     flatten_messages,
+    looks_like_failed_attempt,
     parse_tool_call,
 )
 
@@ -164,3 +165,46 @@ class TestParseToolCall:
         assert parsed is not None
         assert parsed.name == "write_file"
         assert parsed.arguments["path"] == "a.py"
+
+
+class TestLooksLikeFailedAttempt:
+    def test_narrated_intent_prose_triggers_retry(self):
+        text = "First, let me verify the target directory exists."
+        assert looks_like_failed_attempt(text) is True
+
+    def test_raw_powershell_triggers_retry(self):
+        text = (
+            'if (Test-Path "C:\\Users\\Knott\\.config\\opencode\\agents") {\n'
+            "    Write-Host \"exists\"\n"
+            "} else {\n"
+            "    New-Item -ItemType Directory -Path ...\n"
+            "}"
+        )
+        assert looks_like_failed_attempt(text) is True
+
+    def test_raw_python_triggers_retry(self):
+        text = 'import os\n\ndef make_dirs():\n    os.mkdir("agents")\n'
+        assert looks_like_failed_attempt(text) is True
+
+    def test_fenced_code_block_triggers_retry(self):
+        text = "```bash\n#!/bin/sh\nmkdir -p ./agents\n```"
+        assert looks_like_failed_attempt(text) is True
+
+    def test_malformed_tool_call_json_still_triggers_retry(self):
+        text = '{"tool_call": {"name": "read_file", "arguments": {path: "a.py"}}}'
+        assert looks_like_failed_attempt(text) is True
+
+    def test_valid_tool_call_does_not_trigger_retry(self):
+        text = '{"tool_call": {"name": "read_file", "arguments": {"path": "a.py"}}}'
+        # A successfully parsed tool_call is never passed to this heuristic
+        # in app.py (it only runs when parsing failed), but it must not be
+        # mistaken for a failed attempt if it ever is.
+        assert looks_like_failed_attempt(text) is True  # contains "tool_call"
+
+    def test_plain_final_answer_does_not_trigger_retry(self):
+        text = "The answer is 42."
+        assert looks_like_failed_attempt(text) is False
+
+    def test_empty_text_does_not_trigger_retry(self):
+        assert looks_like_failed_attempt("") is False
+        assert looks_like_failed_attempt("   ") is False
