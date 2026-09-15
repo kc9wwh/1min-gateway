@@ -52,3 +52,11 @@ export async function unregisterLinuxService($: Shell): Promise<void> {
   await $`systemctl --user disable --now ${SYSTEMD_UNIT}`.quiet().nothrow();
   await fs.rm(unitPath(), { force: true });
 }
+
+/**
+ * Restart the systemd user unit. Needed after every gateway source code
+ * change (see restartWindowsService for why).
+ */
+export async function restartLinuxService($: Shell): Promise<void> {
+  await $`systemctl --user restart ${SYSTEMD_UNIT}`.quiet().nothrow();
+}

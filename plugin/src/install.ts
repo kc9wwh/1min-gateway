@@ -23,9 +23,9 @@ import { fileURLToPath } from "node:url";
 import { configFilePath, venvDir, venvPython } from "./config-paths.js";
 import type { GatewayFileConfig } from "./gateway-config.js";
 import { defaultConfig, readConfig, writeConfig } from "./gateway-config.js";
-import { registerLinuxService } from "./platform/linux.js";
-import { registerMacService } from "./platform/macos.js";
-import { registerWindowsService } from "./platform/windows.js";
+import { registerLinuxService, restartLinuxService } from "./platform/linux.js";
+import { registerMacService, restartMacService } from "./platform/macos.js";
+import { registerWindowsService, restartWindowsService } from "./platform/windows.js";
 import type { Shell } from "./platform/common.js";
 import { findFreePort, isGatewayHealthy } from "./port.js";
 
@@ -33,6 +33,12 @@ export interface InstallResult {
   port: number;
   baseUrl: string;
   alreadyRunning: boolean;
+}
+
+export interface RestartResult {
+  healthy: boolean;
+  baseUrl: string;
+  message: string;
 }
 
 export type Logger = (message: string) => void;
@@ -150,4 +156,47 @@ export async function installGateway($: Shell, log: Logger = () => {}): Promise<
       "Check the service logs; it may still be starting.",
   );
   return { port: config.port, baseUrl, alreadyRunning: false };
+}
+
+/**
+ * Restart the gateway's background service.
+ *
+ * `installGateway()` is deliberately a no-op once the gateway is already
+ * healthy, so plain source edits (even with an editable `pip install -e`)
+ * never take effect on their own -- the running Python process keeps its
+ * already-imported modules until the process itself is restarted, and
+ * `__main__.py` runs uvicorn without `--reload`. This is the explicit,
+ * on-demand way to pick up a code change: stop the service, start it, wait
+ * for `/health` to come back.
+ */
+export async function restartGateway($: Shell, log: Logger = () => {}): Promise<RestartResult> {
+  const cfgPath = configFilePath();
+  const config = await readConfig(cfgPath);
+  const host = config?.host ?? "127.0.0.1";
+  const port = config?.port ?? 8765;
+  const baseUrl = baseUrlFor(host, port);
+
+  log(`1min-gateway: restarting service for ${process.platform}...`);
+  if (process.platform === "win32") {
+    await restartWindowsService($);
+  } else if (process.platform === "darwin") {
+    await restartMacService($);
+  } else {
+    await restartLinuxService($);
+  }
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (await isGatewayHealthy(`http://${host}:${port}`)) {
+      const message = `1min-gateway: restarted and healthy at ${baseUrl}`;
+      log(message);
+      return { healthy: true, baseUrl, message };
+    }
+  }
+
+  const message =
+    `1min-gateway: restart issued but ${baseUrl}/health did not respond ` +
+    "within 10s. Check gateway.log in the config directory.";
+  log(message);
+  return { healthy: false, baseUrl, message };
 }

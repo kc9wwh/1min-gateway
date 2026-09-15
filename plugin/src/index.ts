@@ -39,6 +39,12 @@ export const OneMinGatewayPlugin: Plugin = async (input: PluginInput) => {
   }
 
   const hooks: Hooks = {
+    // Deliberately NOT exposing `restart_gateway` as an agent tool: the
+    // gateway restart is intentionally a human-only action, triggered via
+    // the `/restart-gateway` slash command (global, in
+    // ~/.config/opencode/commands/), not something the orchestrator or any
+    // subagent can invoke on its own. `restartGateway()` in install.ts is
+    // still there for the command's underlying script to call.
     config: async (config) => {
       const fileConfig = await readConfig(configFilePath());
       const port = installedPort ?? fileConfig?.port ?? 8765;

@@ -31,3 +31,17 @@ export async function isWindowsServiceRegistered($: Shell): Promise<boolean> {
 export async function unregisterWindowsService($: Shell): Promise<void> {
   await $`schtasks /Delete /TN ${SERVICE_NAME} /F`.quiet().nothrow();
 }
+
+/**
+ * Restart the already-registered scheduled task. Needed after every gateway
+ * source code change: the running process has the old modules loaded in
+ * memory (no `--reload`, no file watcher), and `installGateway()` is a
+ * no-op once the gateway is already healthy -- so neither editing the
+ * source nor restarting OpenCode restarts the gateway process itself.
+ * `/End` stops the running instance (a no-op if it already exited); `/Run`
+ * starts a fresh one that re-imports the updated code.
+ */
+export async function restartWindowsService($: Shell): Promise<void> {
+  await $`schtasks /End /TN ${SERVICE_NAME}`.quiet().nothrow();
+  await $`schtasks /Run /TN ${SERVICE_NAME}`.quiet().nothrow();
+}

@@ -63,3 +63,14 @@ export async function unregisterMacService($: Shell): Promise<void> {
   await $`launchctl unload ${target}`.quiet().nothrow();
   await fs.rm(target, { force: true });
 }
+
+/**
+ * Restart the LaunchAgent. Needed after every gateway source code change
+ * (see restartWindowsService for why) -- unload/load cycles the process so
+ * it re-imports the updated modules.
+ */
+export async function restartMacService($: Shell): Promise<void> {
+  const target = plistPath();
+  await $`launchctl unload ${target}`.quiet().nothrow();
+  await $`launchctl load -w ${target}`.quiet().nothrow();
+}
