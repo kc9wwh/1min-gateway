@@ -9,6 +9,9 @@ Responsibilities, and only these:
 - Run ONE round of the translation loop per request: flatten the incoming
   messages + tools into a prompt, call the configured backend, parse the
   result for a tool_call, and translate it back into OpenAI's native shape.
+  If the model emitted more than one tool_call in a single response, the
+  extras are queued and a round may instead dispense a queued call with no
+  backend call at all (see `tool_queue.py`).
 - Track cost/usage.
 
 It does NOT execute tools, does NOT loop multiple tool calls itself (that's
@@ -42,6 +45,7 @@ from .models import (
     new_id,
     now,
 )
+from .tool_queue import ToolCallQueue
 
 logger = logging.getLogger("onemin_gateway")
 
@@ -51,6 +55,7 @@ app = FastAPI(title="1min.ai Agent Gateway", version="0.1.0")
 # except for config + usage tracking, both of which live here.
 config = GatewayConfig.load()
 usage_tracker = UsageTracker(usage_path(), config)
+tool_call_queue = ToolCallQueue()
 
 # Header OpenCode's plugin sets (via the `chat.headers` hook) so the gateway
 # can attribute cost/usage to a session without OpenCode's `sessionID`
@@ -70,7 +75,32 @@ async def _run_one_round(
 ) -> tuple[ChatCompletionResponse, str]:
     """Run exactly one prompt -> backend -> parse round, with the one
     corrective retry described in PROMPT.md. Returns the response plus the
-    raw backend text actually used (for logging)."""
+    raw backend text actually used (for logging).
+
+    If the previous round's response contained more than one tool_call
+    block, the extras are queued (see `tool_queue.py`); this round dispenses
+    the next queued call, if any, without calling the backend at all."""
+    queued = tool_call_queue.pop_next(session_id)
+    if queued is not None:
+        logger.info(
+            "Dispensing queued tool_call %r for session %s without a backend "
+            "call (%d remaining)",
+            queued.name,
+            session_id,
+            tool_call_queue.pending_count(session_id),
+        )
+        tool_call = ToolCall(
+            id=new_id("call"),
+            function=FunctionCall(name=queued.name, arguments=json.dumps(queued.arguments)),
+        )
+        choice = Choice(
+            message=ChoiceMessage(content=None, tool_calls=[tool_call]),
+            finish_reason="tool_calls",
+        )
+        usage = Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        response = ChatCompletionResponse(model=body.model, choices=[choice], usage=usage)
+        return response, ""
+
     tools = body.tools or []
     prompt = protocol.build_prompt(body.messages, tools)
 
@@ -79,7 +109,8 @@ async def _run_one_round(
     except BackendError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    parsed, remaining_text = protocol.parse_tool_call(result.text)
+    parsed_calls, remaining_text = protocol.parse_tool_calls(result.text)
+    parsed = parsed_calls[0] if parsed_calls else None
 
     if parsed is None and tools and config.tool_call_retry:
         if protocol.looks_like_failed_attempt(result.text):
@@ -96,7 +127,8 @@ async def _run_one_round(
                 result = await call_backend(retry_prompt, body.model, config)
             except BackendError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
-            parsed, remaining_text = protocol.parse_tool_call(result.text)
+            parsed_calls, remaining_text = protocol.parse_tool_calls(result.text)
+            parsed = parsed_calls[0] if parsed_calls else None
 
     # Token accounting: prefer real usage from the backend, fall back to a
     # character-based estimate.
@@ -115,6 +147,25 @@ async def _run_one_round(
     )
 
     if parsed is not None:
+        if len(parsed_calls) > 1:
+            overflow = parsed_calls[1:]
+            tool_call_queue.extend(session_id, overflow)
+            logger.info(
+                "Parsed %d tool_call blocks from one response for session %s; "
+                "returning %r now and queuing %d more: %s",
+                len(parsed_calls),
+                session_id,
+                parsed_calls[0].name,
+                len(overflow),
+                [c.name for c in overflow],
+            )
+            if len(parsed_calls) == protocol.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE:
+                logger.warning(
+                    "Hit the %d tool_call safety cap for session %s -- further "
+                    "calls beyond this point may have been ignored",
+                    protocol.DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE,
+                    session_id,
+                )
         tool_call = ToolCall(
             id=new_id("call"),
             function=FunctionCall(

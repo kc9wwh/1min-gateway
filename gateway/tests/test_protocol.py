@@ -8,6 +8,7 @@ from onemin_gateway.protocol import (
     flatten_messages,
     looks_like_failed_attempt,
     parse_tool_call,
+    parse_tool_calls,
 )
 
 
@@ -180,6 +181,90 @@ class TestParseToolCall:
         assert parsed is not None
         assert parsed.name == "write_file"
         assert parsed.arguments["path"] == "a.py"
+
+
+class TestParseToolCalls:
+    def test_two_tool_calls_returns_both_in_order(self):
+        text = (
+            '{"tool_call": {"name": "read_file", "arguments": {"path": "a.py"}}}'
+            "\n\n"
+            '{"tool_call": {"name": "read_file", "arguments": {"path": "b.py"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert [c.name for c in calls] == ["read_file", "read_file"]
+        assert calls[0].arguments == {"path": "a.py"}
+        assert calls[1].arguments == {"path": "b.py"}
+
+    def test_three_tool_calls_various_separators(self):
+        text = (
+            'Intro.\n{"tool_call": {"name": "a", "arguments": {}}}\n'
+            '{"tool_call": {"name": "b", "arguments": {}}}\n\n\n'
+            'Middle prose.\n{"tool_call": {"name": "c", "arguments": {}}}\nOutro.'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert [c.name for c in calls] == ["a", "b", "c"]
+
+    def test_remaining_text_excludes_all_matched_blocks(self):
+        text = (
+            'Intro.\n{"tool_call": {"name": "a", "arguments": {}}}\n'
+            'Middle.\n{"tool_call": {"name": "b", "arguments": {}}}\nOutro.'
+        )
+        _, remaining = parse_tool_calls(text)
+        assert '"tool_call"' not in remaining
+        assert "Intro." in remaining
+        assert "Middle." in remaining
+        assert "Outro." in remaining
+
+    def test_single_tool_call_still_returns_list_of_one(self):
+        text = '{"tool_call": {"name": "read_file", "arguments": {"path": "a.py"}}}'
+        calls, remaining = parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0].name == "read_file"
+        assert remaining == ""
+
+    def test_no_tool_call_returns_empty_list(self):
+        text = "I don't need a tool for this, the answer is 42."
+        calls, remaining = parse_tool_calls(text)
+        assert calls == []
+        assert remaining == text
+
+    def test_invalid_tool_call_missing_name_is_skipped_and_scanning_continues(self):
+        text = (
+            '{"tool_call": {"arguments": {"path": "a.py"}}}\n\n'
+            '{"tool_call": {"name": "read_file", "arguments": {"path": "b.py"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0].name == "read_file"
+        assert calls[0].arguments == {"path": "b.py"}
+
+    def test_safety_cap_limits_number_of_parsed_calls(self):
+        blocks = [
+            f'{{"tool_call": {{"name": "call_{i}", "arguments": {{}}}}}}' for i in range(4)
+        ]
+        text = "\n\n".join(blocks)
+        calls, remaining = parse_tool_calls(text, max_calls=2)
+        assert [c.name for c in calls] == ["call_0", "call_1"]
+        # Untouched blocks beyond the cap survive in `remaining`.
+        assert '"call_2"' in remaining
+        assert '"call_3"' in remaining
+
+    def test_parse_tool_call_wrapper_still_returns_first_call_only(self):
+        text = (
+            '{"tool_call": {"name": "a", "arguments": {}}}\n\n'
+            '{"tool_call": {"name": "b", "arguments": {}}}'
+        )
+        parsed, _ = parse_tool_call(text)
+        assert parsed is not None
+        assert parsed.name == "a"
+
+    def test_parse_tool_call_wrapper_removes_all_detected_blocks_from_remaining(self):
+        text = (
+            '{"tool_call": {"name": "a", "arguments": {}}}\n\n'
+            '{"tool_call": {"name": "b", "arguments": {}}}'
+        )
+        _, remaining = parse_tool_call(text)
+        assert '"tool_call"' not in remaining
 
 
 class TestLooksLikeFailedAttempt:
