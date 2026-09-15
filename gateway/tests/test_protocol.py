@@ -2,6 +2,7 @@ import json
 
 from onemin_gateway.models import ChatMessage, FunctionDef, ToolCall, ToolDef, FunctionCall
 from onemin_gateway.protocol import (
+    TASK_PERSISTENCE_REMINDER,
     build_prompt,
     build_tool_block,
     flatten_messages,
@@ -102,6 +103,20 @@ class TestBuildPrompt:
             [ChatMessage(role="user", content="hi")], [make_tool()]
         )
         assert prompt.index("Available tools") < prompt.index("Human: hi")
+
+    def test_includes_persistence_reminder_when_tools_present(self):
+        prompt = build_prompt(
+            [ChatMessage(role="user", content="hi")], [make_tool()]
+        )
+        assert TASK_PERSISTENCE_REMINDER in prompt
+        # Reminder sits after the conversation and right before the
+        # generation cue, so it's the last thing the model reads.
+        assert prompt.index("Human: hi") < prompt.index(TASK_PERSISTENCE_REMINDER)
+        assert prompt.endswith(TASK_PERSISTENCE_REMINDER + "\n\nAssistant:")
+
+    def test_omits_persistence_reminder_when_no_tools(self):
+        prompt = build_prompt([ChatMessage(role="user", content="hi")], None)
+        assert TASK_PERSISTENCE_REMINDER not in prompt
 
 
 class TestParseToolCall:

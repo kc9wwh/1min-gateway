@@ -44,8 +44,12 @@ TOOL_PROTOCOL_HEADER = (
     "\n"
     "Do not narrate or describe what you are about to do (e.g. \"let me...\", "
     "\"first I will...\") -- just emit the tool_call object for the single "
-    "next action. When you are completely finished and need no more tools, "
-    "respond normally with plain text and no tool_call object.\n"
+    "next action. Many tasks require several tool calls in a row: a single "
+    "successful tool result does NOT mean the task is done. After each tool "
+    "result, check whether every part of the original request is complete. "
+    "If not, immediately emit the next tool_call -- do not stop to report "
+    "partial progress. Only respond with plain text and no tool_call object "
+    "once the entire task is finished.\n"
     "\n"
     "Available tools:\n"
 )
@@ -217,12 +221,32 @@ def flatten_messages(messages: list[ChatMessage]) -> str:
     return "\n".join(lines)
 
 
+# Reinserted immediately before the generation cue on every round (not just
+# once at the top of the prompt, alongside TOOL_PROTOCOL_HEADER). The model
+# reliably follows instructions placed right before it starts generating;
+# a rule stated only once at the top of a long, growing conversation gets
+# diluted ("lost in the middle") after several tool round-trips. This is
+# what specifically targets the "one successful tool call and the model
+# reports back as if done" degradation pattern.
+TASK_PERSISTENCE_REMINDER = (
+    "Reminder: this task may need more than one tool call. Do not treat the "
+    "most recent tool result as the end of the task. If any part of the "
+    "original request is still unfinished, respond now with the next "
+    "tool_call -- do not describe remaining work in prose. Only respond "
+    "with plain text, with no tool_call object, once the entire task is "
+    "completely finished."
+)
+
+
 def build_prompt(messages: list[ChatMessage], tools: list[ToolDef] | None) -> str:
     """Build the full flat prompt to send to 1min.ai / the relay."""
     tool_block = build_tool_block(tools)
     conversation = flatten_messages(messages)
     sections = [s for s in (tool_block, conversation) if s]
-    return "\n\n".join(sections) + "\n\nAssistant:"
+    prompt = "\n\n".join(sections)
+    if tools:
+        prompt += "\n\n" + TASK_PERSISTENCE_REMINDER
+    return prompt + "\n\nAssistant:"
 
 
 @dataclass
