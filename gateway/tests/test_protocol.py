@@ -94,6 +94,29 @@ class TestBuildToolBlock:
         assert "Read a file" in block
 
 
+class TestToolProtocolHeaderEscaping:
+    """A model as weak as qwen3-8b will sometimes over-escape newlines in a
+    tool_call's JSON arguments (emitting `\\\\n` -- two backslashes -- instead
+    of `\\n`), which json.loads then faithfully decodes into the literal two
+    characters backslash+n landing in a written file instead of a real line
+    break. The header must spell out the correct form and explicitly warn
+    against the over-escaped one.
+    """
+
+    def test_shows_correctly_escaped_multiline_example(self):
+        block = build_tool_block([make_tool()])
+        # A single backslash followed by 'n' -- the valid JSON escape for a
+        # line break -- must appear in the multi-line example.
+        assert '"line one\\nline two"' in block
+
+    def test_warns_against_double_escaped_newlines(self):
+        block = build_tool_block([make_tool()])
+        # The over-escaped form a weak model sometimes produces (two
+        # backslashes before the n) must be shown explicitly as the thing
+        # NOT to do.
+        assert "\\\\n" in block
+
+
 class TestBuildPrompt:
     def test_ends_with_assistant_cue(self):
         prompt = build_prompt([ChatMessage(role="user", content="hi")], None)

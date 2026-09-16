@@ -42,6 +42,15 @@ TOOL_PROTOCOL_HEADER = (
     'Run a command: {"tool_call": {"name": "run_command", "arguments": '
     '{"command": "pytest -q"}}}\n'
     "\n"
+    "If an argument value needs a line break (e.g. multi-line file content), "
+    "write it as a SINGLE backslash followed by the letter n -- \\n -- "
+    "inside the JSON string. Do NOT write two backslashes before the n "
+    "(\\\\n) -- that produces the literal two characters backslash and 'n' "
+    "in the file instead of an actual line break, corrupting the file.\n"
+    'Example -- writing a two-line file: {"tool_call": {"name": '
+    '"write_file", "arguments": {"path": "hello.py", "content": "line '
+    'one\\nline two"}}}\n'
+    "\n"
     "Do not narrate or describe what you are about to do (e.g. \"let me...\", "
     "\"first I will...\") -- just emit the tool_call object for the single "
     "next action. Many tasks require several tool calls in a row: a single "
