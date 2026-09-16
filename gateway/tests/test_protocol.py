@@ -2,6 +2,7 @@ import json
 
 from onemin_gateway.models import ChatMessage, FunctionDef, ToolCall, ToolDef, FunctionCall
 from onemin_gateway.protocol import (
+    NEWLINE_ESCAPING_REMINDER,
     TASK_PERSISTENCE_REMINDER,
     build_prompt,
     build_tool_block,
@@ -136,11 +137,29 @@ class TestBuildPrompt:
         # Reminder sits after the conversation and right before the
         # generation cue, so it's the last thing the model reads.
         assert prompt.index("Human: hi") < prompt.index(TASK_PERSISTENCE_REMINDER)
-        assert prompt.endswith(TASK_PERSISTENCE_REMINDER + "\n\nAssistant:")
 
     def test_omits_persistence_reminder_when_no_tools(self):
         prompt = build_prompt([ChatMessage(role="user", content="hi")], None)
         assert TASK_PERSISTENCE_REMINDER not in prompt
+
+    def test_includes_newline_escaping_reminder_when_tools_present(self):
+        # The one-time explanation in TOOL_PROTOCOL_HEADER (way up at the top
+        # of the prompt) isn't enough on its own -- like
+        # TASK_PERSISTENCE_REMINDER, this must be re-stated right before the
+        # generation cue, since that's the position a small model actually
+        # reads reliably in a long, growing conversation.
+        prompt = build_prompt(
+            [ChatMessage(role="user", content="hi")], [make_tool()]
+        )
+        assert NEWLINE_ESCAPING_REMINDER in prompt
+        assert prompt.index(TASK_PERSISTENCE_REMINDER) < prompt.index(
+            NEWLINE_ESCAPING_REMINDER
+        )
+        assert prompt.endswith(NEWLINE_ESCAPING_REMINDER + "\n\nAssistant:")
+
+    def test_omits_newline_escaping_reminder_when_no_tools(self):
+        prompt = build_prompt([ChatMessage(role="user", content="hi")], None)
+        assert NEWLINE_ESCAPING_REMINDER not in prompt
 
 
 class TestParseToolCall:

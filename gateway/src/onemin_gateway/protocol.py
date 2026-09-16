@@ -246,6 +246,18 @@ TASK_PERSISTENCE_REMINDER = (
     "completely finished."
 )
 
+# Same "reinsert right before generation" rationale as TASK_PERSISTENCE_REMINDER
+# above. The one-time explanation + example in TOOL_PROTOCOL_HEADER wasn't
+# enough on its own to stop a weak model from double-escaping newlines
+# (writing \\n instead of \n) in multi-line tool_call arguments, which
+# corrupts written files with literal backslash-n text -- restating the rule
+# tersely right before the cue targets the same "lost in the middle" failure.
+NEWLINE_ESCAPING_REMINDER = (
+    "Reminder: a line break in a tool_call argument is a SINGLE backslash "
+    "then n (\\n). Two backslashes (\\\\n) writes the literal characters "
+    "backslash and 'n' into the file instead of a line break."
+)
+
 
 def build_prompt(messages: list[ChatMessage], tools: list[ToolDef] | None) -> str:
     """Build the full flat prompt to send to 1min.ai / the relay."""
@@ -255,6 +267,7 @@ def build_prompt(messages: list[ChatMessage], tools: list[ToolDef] | None) -> st
     prompt = "\n\n".join(sections)
     if tools:
         prompt += "\n\n" + TASK_PERSISTENCE_REMINDER
+        prompt += "\n\n" + NEWLINE_ESCAPING_REMINDER
     return prompt + "\n\nAssistant:"
 
 
