@@ -172,6 +172,15 @@ async def _run_one_round(
                 name=parsed.name, arguments=json.dumps(parsed.arguments)
             ),
         )
+        logger.debug(
+            "Dispatching tool_call %r for session %s with arguments: %s",
+            parsed.name,
+            session_id,
+            {
+                k: (v[:200] + "…" if isinstance(v, str) and len(v) > 200 else v)
+                for k, v in parsed.arguments.items()
+            },
+        )
         choice = Choice(
             message=ChoiceMessage(content=None, tool_calls=[tool_call]),
             finish_reason="tool_calls",

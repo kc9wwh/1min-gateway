@@ -309,6 +309,94 @@ class TestParseToolCalls:
         assert '"tool_call"' not in remaining
 
 
+class TestParseToolCallsRepairsEscaping:
+    """A model as weak as qwen3-8b sometimes writes a line break as \\n (two
+    backslashes) instead of \n in a tool_call argument. That's valid JSON --
+    it decodes into the literal two characters backslash+'n' rather than a
+    control character -- so it corrupts written file content. These pin down
+    a narrow, best-effort repair scoped to OpenCode's real write/edit
+    argument names (content/oldString/newString), never touching anything
+    else (e.g. `path`, which is full of legitimate backslashes on Windows).
+    """
+
+    def test_content_double_escaped_newlines_are_repaired(self):
+        text = (
+            r'{"tool_call": {"name": "write_file", "arguments": '
+            r'{"content": "line1\\nline2\\nline3"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["content"] == "line1\nline2\nline3"
+
+    def test_oldString_double_escaped_newlines_are_repaired(self):
+        text = (
+            r'{"tool_call": {"name": "edit", "arguments": '
+            r'{"oldString": "a\\nb\\nc", "newString": "x"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["oldString"] == "a\nb\nc"
+
+    def test_newString_double_escaped_newlines_are_repaired(self):
+        text = (
+            r'{"tool_call": {"name": "edit", "arguments": '
+            r'{"oldString": "x", "newString": "a\\nb\\nc"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["newString"] == "a\nb\nc"
+
+    def test_content_double_escaped_tabs_are_repaired(self):
+        text = (
+            r'{"tool_call": {"name": "write_file", "arguments": '
+            r'{"content": "a\\tb\\tc"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["content"] == "a\tb\tc"
+
+    def test_single_occurrence_is_not_repaired(self):
+        # Below the 2-occurrence threshold -- a single legitimate escape
+        # sequence inside one line of real code must survive untouched.
+        text = (
+            r'{"tool_call": {"name": "write_file", "arguments": '
+            r'{"content": "line1\\nline2"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["content"] == "line1\\nline2"
+
+    def test_value_with_existing_real_newline_is_left_untouched(self):
+        # One correctly single-escaped newline (-> a real newline once
+        # decoded) plus two incidental double-escaped mentions later. Any
+        # real newline/tab already present means "leave the whole value
+        # alone" wins over the occurrence-count check.
+        text = (
+            r'{"tool_call": {"name": "write_file", "arguments": '
+            r'{"content": "line1\nline2 mentions \\n and \\n again"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert (
+            calls[0].arguments["content"]
+            == "line1\nline2 mentions \\n and \\n again"
+        )
+
+    def test_path_argument_is_never_touched(self):
+        # A Windows path fragment that happens to look exactly like the
+        # corruption pattern (multiple literal backslash+n occurrences, no
+        # real newlines) must never be rewritten -- only content/oldString/
+        # newString are in scope.
+        text = (
+            r'{"tool_call": {"name": "write_file", "arguments": '
+            r'{"path": "C:\\nested\\node\\next"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["path"] == "C:\\nested\\node\\next"
+
+    def test_correctly_escaped_multiline_content_is_unaffected(self):
+        text = (
+            r'{"tool_call": {"name": "write_file", "arguments": '
+            r'{"content": "def f():\n    return 1\n"}}}'
+        )
+        calls, _ = parse_tool_calls(text)
+        assert calls[0].arguments["content"] == "def f():\n    return 1\n"
+
+
 class TestLooksLikeFailedAttempt:
     def test_narrated_intent_prose_triggers_retry(self):
         text = "First, let me verify the target directory exists."

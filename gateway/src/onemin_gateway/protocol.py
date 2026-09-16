@@ -282,6 +282,36 @@ class ParsedToolCall:
 # when it ignores the one-call-per-turn instruction.
 DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE = 8
 
+# OpenCode's built-in `write`/`edit` tools use exactly these argument names
+# for whole-file-or-block text content (confirmed against OpenCode's own
+# tool source/docs, not guessed) -- this repair never touches "path" or any
+# other argument, which is what protects Windows path arguments (full of
+# legitimate backslashes) from being mangled.
+_REPAIRABLE_ARG_NAMES = frozenset({"content", "oldString", "newString"})
+
+# A single legitimate escape sequence inside one real line of code (e.g. an
+# oldString matching `print("hello\nworld")`) must never trigger a rewrite --
+# only a value with several such occurrences AND no real newline/tab already
+# is treated as a whole corrupted block.
+_MIN_ESCAPE_OCCURRENCES_TO_REPAIR = 2
+
+
+def _repair_double_escaped_whitespace(value: str) -> str:
+    """Undo a weak model's habit of writing \\n / \\t (two backslashes) where
+    a real newline/tab was intended in a tool_call argument. That's valid
+    JSON -- it decodes into the literal two characters backslash+letter
+    rather than a control character -- so nothing upstream catches it. This
+    is a deliberately narrow, best-effort repair (see `_REPAIRABLE_ARG_NAMES`
+    and `_MIN_ESCAPE_OCCURRENCES_TO_REPAIR`), not a general escaping fix: a
+    correctly-escaped Windows path fragment and a corrupted newline are
+    otherwise indistinguishable once decoded.
+    """
+    if "\n" in value or "\t" in value:
+        return value
+    if value.count("\\n") + value.count("\\t") < _MIN_ESCAPE_OCCURRENCES_TO_REPAIR:
+        return value
+    return value.replace("\\n", "\n").replace("\\t", "\t")
+
 
 def _find_balanced_json(text: str, start: int) -> str | None:
     """Given the index of an opening `{`, return the substring up to its
@@ -354,6 +384,15 @@ def parse_tool_calls(
             if isinstance(name, str):
                 if not isinstance(arguments, dict):
                     arguments = {}
+                else:
+                    arguments = {
+                        key: (
+                            _repair_double_escaped_whitespace(val)
+                            if key in _REPAIRABLE_ARG_NAMES and isinstance(val, str)
+                            else val
+                        )
+                        for key, val in arguments.items()
+                    }
                 matches.append(
                     (brace_start, end, ParsedToolCall(name=name, arguments=arguments))
                 )
