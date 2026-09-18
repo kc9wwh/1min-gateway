@@ -30,11 +30,10 @@ export interface GatewayFileConfig {
 // Kept in sync with PROMPT.md's reference pricing and
 // gateway/config.sample.json.
 export const DEFAULT_PRICING: Record<string, ModelPricing> = {
-  "grok-4-fast-non-reasoning": { input: 600, output: 1502 },
   "deepseek-v4-pro": { input: 1305, output: 2612 },
   "qwen3-8b": { input: 0, output: 0 },
   "qwen3.7-flash": { input: 90, output: 390 },
-  "deepseek-v4-flash": { input: 420, output: 840 },
+  "deepseek-flash": { input: 420, output: 840 },
   "grok-4.3": { input: 3752, output: 7505 },
   "us.anthropic.claude-sonnet-5": { input: 6603, output: 33017 },
 };
